@@ -1,25 +1,25 @@
 # Brave Bookmark Architect & Smart Organizer
 
-Extensão **Manifest V3** desenvolvida para **Brave Browser** e **Google Chrome** que percorre todos os favoritos, testa a validade de cada link, categoriza e organiza automaticamente em pastas na **Barra de Favoritos**, exibe uma **prévia rica ao passar o mouse (hover)**, permite adicionar **notas de observação** por link e oferece **Exportação / Importação (Backup)** compatível inclusive com o arquivo `Bookmarks` nativo do Brave/Chrome.
+A **Manifest V3** browser extension designed for **Brave Browser** and **Google Chrome** that scans all your bookmarks, validates every link, automatically categorizes and organizes them into folders on the **Bookmarks Bar**, displays a **rich preview on mouse hover**, lets you attach **observation notes** to each bookmark, and provides **Export / Import (Backup)** fully compatible with the native Brave/Chrome `Bookmarks` file.
 
-## Arquitetura do Projeto
+## Project Architecture
 
 ```mermaid
 flowchart TD
-    subgraph UI["Interface da Extensão (Side Panel & Full Tab)"]
+    subgraph UI["Extension UI (Side Panel & Full Tab)"]
         HTML["src/ui/manager.html"]
         CSS["src/ui/manager.css"]
         CTRL["src/ui/manager.js"]
-        POPOVER["Popover Prévia (Hover / Focus)"]
-        DIALOG["Dialog Notas & Categoria"]
+        POPOVER["Preview Popover (Hover / Focus)"]
+        DIALOG["Notes & Category Dialog"]
     end
 
     subgraph SW["Background Service Worker (MV3)"]
         WORKER["src/background/service-worker.js"]
     end
 
-    subgraph CORE["Módulos de Domínio (src/shared)"]
-        CAT["categorizer.js (Regras + Domínios + Keywords)"]
+    subgraph CORE["Domain Modules (src/shared)"]
+        CAT["categorizer.js (Rules + Domains + Keywords)"]
         CHK["link-checker.js (HTTP Fetch + OpenGraph Preview)"]
         BKP["backup-service.js (Export/Import JSON + Chromium Bookmarks)"]
         STR["storage-service.js (chrome.storage.local & session)"]
@@ -32,20 +32,39 @@ flowchart TD
     WORKER --> STR
 ```
 
-## Como Instalar no Brave ou Chrome
+## How to Install on Brave or Chrome
 
-> **Importante**: O Chromium reserva nomes iniciados com `_` (como `_docs` e `_testes` na raiz do repositório) apenas para `_locales` e `_metadata`. Por isso, o pacote limpo da extensão fica isolado na pasta **`extension/`**.
+> **Important**: Chromium reserves filenames starting with `_` (such as `_docs` and `_testes` at the root of the repository) exclusively for `_locales` and `_metadata`. Therefore, the clean, ready-to-load extension package is isolated inside the **`extension/`** directory.
 
-1. Abra o navegador Brave (`brave://extensions`) ou Chrome (`chrome://extensions`).
-2. Ative a chave **Modo do desenvolvedor** (*Developer mode*) no canto superior direito.
-3. Clique em **Carregar sem compactação** (*Load unpacked*).
-4. Selecione a pasta **`extension`** dentro deste projeto:
-   `/home/murilo/Projetos/dev/tools/bookmark_manager/extension`
-5. Clique no ícone da extensão na barra do navegador para abrir o **Side Panel** (ou clique no botão **⛶ Tela Cheia** para abrir como aba completa).
+1. Open Brave (`brave://extensions`) or Chrome (`chrome://extensions`).
+2. Enable **Developer mode** in the top-right corner.
+3. Click **Load unpacked**.
+4. Select the **`extension`** folder inside this project:
+   `YOUR-FULL-PROJECT-PATH/bookmark_manager/extension`
+5. Click the extension icon in your browser toolbar to open the **Side Panel** (or click the **⛶ Full Screen** button to open it in a full tab).
 
-## Como Executar os Testes Automatizados
+## How to Run Automated Tests
 
 ```bash
 npm test
 ```
 
+## 🤝 Contributing
+
+Contributions are always welcome! Feel free to:
+
+1. Report bugs
+2. Suggest new features
+3. Submit pull requests
+
+## 📝 License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.
+
+## ☕ Support the Project
+
+If this project helped you in any way, consider making a donation:
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/E4I024A0VK)
+
+**PIX**: `536c8d7e-fb28-444f-8d58-7fd87397d401`
