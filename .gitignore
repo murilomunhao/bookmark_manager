@@ -1,0 +1,41 @@
+# Dados pessoais e backups de favoritos (LGPD / Privacidade)
+Bookmarks
+Bookmarks.bak
+bookmarks-backup-*.json
+*.backup.json
+
+# Dependências e Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Pacotes e chaves privadas de extensão Chrome/Brave
+*.pem
+*.crx
+*.zip
+
+# Variáveis de ambiente e segredos
+.env
+.env.*
+!.env.example
+
+# Diretórios de IDEs, Editores e Agentes
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Arquivos de Sistema Operacional
+.DS_Store
+Thumbs.db
+
+# Diretórios temporários e cache
+tmp/
+temp/
+.cache/
+coverage/
+dist/
+build/

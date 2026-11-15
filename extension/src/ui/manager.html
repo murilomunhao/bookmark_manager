@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Brave Bookmark Architect & Smart Organizer</title>
+  <link rel="stylesheet" href="manager.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <img src="../../icons/icon-48.png" alt="Logo" class="brand-icon" width="32" height="32">
+      <div>
+        <h1>Bookmark Architect</h1>
+        <p class="subtitle">Validador, Categorizador, Prévia &amp; Notas</p>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <button id="btnScanAll" class="btn btn-primary" type="button" title="Percorre todos os favoritos, testa se os links são válidos e extrai prévias">
+        🔍 Testar Todos os Links
+      </button>
+      <button id="btnOrganizeBar" class="btn btn-accent" type="button" title="Cria as pastas na Barra de Favoritos e move cada link para sua categoria">
+        📁 Organizar na Barra de Favoritos
+      </button>
+      <button id="btnExportBackup" class="btn btn-secondary" type="button" title="Exporta todos os favoritos, categorias e notas em JSON">
+        ⬇️ Exportar Backup
+      </button>
+      <button id="btnImportBackup" class="btn btn-secondary" type="button" title="Importa backup JSON ou o arquivo Bookmarks do Brave/Chrome">
+        ⬆️ Importar / Restaurar
+      </button>
+      <button id="btnOpenFullTab" class="btn btn-ghost" type="button" title="Abrir painel em uma guia de tela cheia">
+        ⛶ Tela Cheia
+      </button>
+      <input type="file" id="fileImportInput" accept=".json,application/json,*" hidden>
+    </div>
+  </header>
+
+  <!-- Barra de progresso de varredura -->
+  <section id="scanProgressSection" class="progress-banner" hidden aria-live="polite">
+    <div class="progress-info">
+      <span id="scanProgressLabel">Verificando links...</span>
+      <span id="scanProgressNumbers">0 / 0 (0%)</span>
+    </div>
+    <div class="progress-track">
+      <div id="scanProgressBar" class="progress-fill"></div>
+    </div>
+  </section>
+
+  <!-- Resumo / Métricas -->
+  <section class="stats-bar" aria-label="Resumo dos favoritos">
+    <div class="stat-card" data-filter-status="all">
+      <span class="stat-value" id="statTotal">0</span>
+      <span class="stat-label">Total de Links</span>
+    </div>
+    <div class="stat-card stat-valid" data-filter-status="valid">
+      <span class="stat-value" id="statValid">0</span>
+      <span class="stat-label">Válidos (Online)</span>
+    </div>
+    <div class="stat-card stat-restricted" data-filter-status="restricted">
+      <span class="stat-value" id="statRestricted">0</span>
+      <span class="stat-label">Protegidos / Login</span>
+    </div>
+    <div class="stat-card stat-broken" data-filter-status="broken">
+      <span class="stat-value" id="statBroken">0</span>
+      <span class="stat-label">Quebrados (Offline)</span>
+    </div>
+    <div class="stat-card stat-notes" data-filter-status="with_notes">
+      <span class="stat-value" id="statWithNotes">0</span>
+      <span class="stat-label">Com Notas</span>
+    </div>
+  </section>
+
+  <!-- Filtros e Busca -->
+  <section class="toolbar" aria-label="Filtros de busca e categorias">
+    <div class="search-wrapper">
+      <input
+        type="search"
+        id="searchInput"
+        class="search-input"
+        placeholder="Buscar por título, URL, domínio ou nota de observação..."
+        autocomplete="off"
+      >
+    </div>
+
+    <div class="filters-row">
+      <select id="statusFilterSelect" class="filter-select" aria-label="Filtrar por status">
+        <option value="all">Todos os Status</option>
+        <option value="valid">✅ Apenas Válidos</option>
+        <option value="restricted">🛡️ Protegidos / Login (401/403)</option>
+        <option value="broken">❌ Apenas Quebrados</option>
+        <option value="unchecked">⏳ Ainda Não Testados</option>
+        <option value="with_notes">📝 Com Notas de Observação</option>
+      </select>
+
+      <label class="checkbox-label" title="Quando organizar na Barra de Favoritos, mover links quebrados para uma pasta separada">
+        <input type="checkbox" id="chkQuarantineBroken" checked>
+        Isolar quebrados ao organizar
+      </label>
+    </div>
+
+    <nav id="categoryPills" class="category-pills" aria-label="Categorias de favoritos"></nav>
+  </section>
+
+  <!-- Lista de Favoritos -->
+  <main class="bookmarks-container">
+    <div id="emptyState" class="empty-state" hidden>
+      <p>Nenhum favorito encontrado para os filtros selecionados.</p>
+    </div>
+    <div id="bookmarksList" class="bookmarks-grid" role="list"></div>
+  </main>
+
+  <!-- Popover de Prévia ao passar o mouse (WCAG 1.4.13 compliant: dismissible, hoverable, persistent) -->
+  <div id="linkPreviewPopover" popover="hint" class="preview-popover">
+    <div class="preview-header">
+      <img id="previewFavicon" src="../../icons/icon-16.png" alt="" class="preview-favicon" width="20" height="20">
+      <div class="preview-title-wrap">
+        <h3 id="previewTitle" class="preview-title">Carregando prévia...</h3>
+        <span id="previewDomain" class="preview-domain"></span>
+      </div>
+      <span id="previewStatusBadge" class="status-badge"></span>
+    </div>
+
+    <div id="previewImageContainer" class="preview-image-wrap" hidden>
+      <img id="previewImage" src="" alt="Imagem de prévia do link" class="preview-image">
+    </div>
+
+    <p id="previewDescription" class="preview-description"></p>
+
+    <div id="previewNoteBox" class="preview-note-box" hidden>
+      <strong>📝 Sua Nota:</strong>
+      <p id="previewNoteText"></p>
+    </div>
+
+    <div class="preview-footer">
+      <code id="previewUrl" class="preview-url"></code>
+      <div class="preview-meta-row">
+        <span id="previewCategoryTag" class="category-tag"></span>
+        <span id="previewCheckedAt" class="preview-checked-at"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de Edição de Nota de Observação e Categoria (Light-dismiss via closedby="any" + fallback) -->
+  <dialog id="noteEditDialog" closedby="any" class="modal-dialog" aria-labelledby="noteDialogTitle">
+    <form id="noteEditForm" method="dialog" class="modal-form">
+      <header class="modal-header">
+        <h2 id="noteDialogTitle">📝 Nota &amp; Categoria do Favorito</h2>
+        <button type="button" id="btnCloseDialog" class="btn-icon" aria-label="Fechar janela">✕</button>
+      </header>
+
+      <div class="modal-body">
+        <input type="hidden" id="editBookmarkId">
+        <input type="hidden" id="editBookmarkUrl">
+
+        <div class="form-group">
+          <label for="editBookmarkTitle">Título do Favorito</label>
+          <input type="text" id="editBookmarkTitle" class="form-input" required>
+        </div>
+
+        <div class="form-group">
+          <label for="editBookmarkUrlDisplay">URL</label>
+          <input type="url" id="editBookmarkUrlDisplay" class="form-input" readonly>
+        </div>
+
+        <div class="form-group">
+          <label for="editBookmarkCategory">Pasta / Categoria na Barra de Favoritos</label>
+          <div class="category-input-group">
+            <select id="editBookmarkCategorySelect" class="form-input"></select>
+            <input
+              type="text"
+              id="editBookmarkCustomCategory"
+              class="form-input"
+              placeholder="Ou digite uma nova categoria..."
+            >
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="editBookmarkNote">Nota de Observação (visível na listagem, na prévia e no backup)</label>
+          <textarea
+            id="editBookmarkNote"
+            class="form-textarea"
+            rows="4"
+            placeholder="Adicione observações, credenciais de dica, finalidade da ferramenta ou lembretes..."
+          ></textarea>
+        </div>
+
+        <label class="checkbox-label">
+          <input type="checkbox" id="editMoveImmediately" checked>
+          Mover imediatamente para esta pasta na Barra de Favoritos
+        </label>
+      </div>
+
+      <footer class="modal-footer">
+        <button type="button" id="btnCancelDialog" class="btn btn-secondary">Cancelar</button>
+        <button type="submit" id="btnSaveNote" class="btn btn-primary">💾 Salvar Alterações</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Toast de Feedback Visual -->
+  <div id="toastNotification" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <script type="module" src="manager.js"></script>
+</body>
+</html>
+
