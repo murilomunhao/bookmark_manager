@@ -1,7 +1,7 @@
 /**
  * Categorizer Module
- * Classifica URLs e títulos de favoritos em categorias padronizadas para a Barra de Favoritos,
- * baseadas no arquivo Bookmarks de referência do usuário.
+ * Classifies bookmark URLs and titles into standardized categories for the Bookmarks Bar,
+ * calibrated against the user's reference Bookmarks file.
  */
 
 export const CATEGORIES = {
@@ -349,17 +349,16 @@ const FOLDER_ALIAS_MAP = {
 };
 
 /**
- * Determina a categoria ideal para um favorito.
- * @param {object} bookmark - Objeto { title, url, currentFolder }
- * @returns {string} Nome da categoria
+ * Determines the best category for a bookmark.
+ * @param {object} bookmark - Object { title, url, currentFolder }
+ * @returns {string} Category name
  */
 export function categorizeBookmark({ title = '', url = '', currentFolder = '' }) {
-  // 1. Se já estiver em uma pasta de categoria reconhecida (exceto "Barra de favoritos", "Outros favoritos", "Importado"), preserva/normaliza
+  // 1. If already inside a recognized category folder (except root containers or "Importado"), preserve/normalize it
   if (currentFolder) {
     const normalizedFolder = currentFolder.trim().toLowerCase();
     if (FOLDER_ALIAS_MAP[normalizedFolder]) {
-      // Porém, no arquivo de referência do usuário há casos como "Agencia Virtual GS Inima" dentro de AI por engano.
-      // Vamos verificar se o domínio bate fortemente com outra regra específica primeiro; se não bater, mantém a pasta atual.
+      // Check if domain strongly matches a specific rule first to fix misplaced bookmarks
       const domainMatch = matchByDomainOnly(url);
       if (domainMatch) {
         return domainMatch;
@@ -371,7 +370,7 @@ export function categorizeBookmark({ title = '', url = '', currentFolder = '' })
   const lowerUrl = (url || '').toLowerCase();
   const lowerTitle = (title || '').toLowerCase();
 
-  // 2. Esquemas especiais
+  // 2. Special schemes
   if (lowerUrl.startsWith('javascript:')) {
     return CATEGORIES.DEV;
   }
@@ -379,13 +378,13 @@ export function categorizeBookmark({ title = '', url = '', currentFolder = '' })
     return CATEGORIES.DEV;
   }
 
-  // 3. Verifica por domínio exato/sufixo
+  // 3. Exact or suffix domain match
   const domainCategory = matchByDomainOnly(url);
   if (domainCategory) {
     return domainCategory;
   }
 
-  // 4. Verifica por palavras-chave no título ou URL
+  // 4. Keyword match in title or URL
   for (const rule of CATEGORY_RULES) {
     for (const kw of rule.keywords) {
       if (lowerTitle.includes(kw) || lowerUrl.includes(kw)) {
@@ -398,7 +397,7 @@ export function categorizeBookmark({ title = '', url = '', currentFolder = '' })
 }
 
 /**
- * Verifica apenas correspondência de domínio nas regras.
+ * Checks domain-only match against category rules.
  * @param {string} url
  * @returns {string|null}
  */
@@ -423,10 +422,95 @@ export function matchByDomainOnly(url) {
 }
 
 /**
- * Retorna a lista de todas as categorias disponíveis.
+ * Returns the list of all available categories.
  * @returns {string[]}
  */
 export function getAllCategories() {
   return Object.values(CATEGORIES);
 }
+
+const GENERIC_SUBDOMAINS = new Set(['www', 'app', 'pt', 'br', 'en', 'm', 'web', 'login', 'auth', 'dashboard', 'console', 'studio', 'my', 'beta']);
+const COMPOUND_TLDS = new Set([
+  'com.br', 'gov.br', 'edu.br', 'jus.br', 'org.br', 'net.br', 'nic.br',
+  'co.uk', 'org.uk', 'co.jp', 'com.au'
+]);
+const GENERIC_SLDS = new Set(['sp', 'rj', 'mg', 'pr', 'rs', 'sc', 'ba', 'df', 'go', 'pe', 'ce', 'gov', 'edu', 'com', 'org', 'net']);
+
+/**
+ * Extracts the default bookmark name from the URL domain (without extension) in UPPERCASE.
+ * Example: "https://www.meusite.com/pagina" -> "MEUSITE"
+ *          "https://app.cakto.com.br/home" -> "CAKTO"
+ * @param {string} url
+ * @param {string} fallbackTitle
+ * @returns {string}
+ */
+export function extractDomainNameUppercase(url, fallbackTitle = '') {
+  if (!url || typeof url !== 'string') {
+    return (fallbackTitle || 'LINK').trim().toUpperCase();
+  }
+
+  const trimmed = url.trim();
+  const lower = trimmed.toLowerCase();
+
+  if (lower.startsWith('javascript:')) {
+    return 'BOOKMARKLET';
+  }
+
+  if (lower.startsWith('file://')) {
+    const cleanPath = trimmed.replace(/\/+$/, '');
+    const lastSegment = cleanPath.split('/').pop() || 'LOCAL';
+    const withoutExt = lastSegment.includes('.') ? lastSegment.split('.')[0] : lastSegment;
+    return (withoutExt || 'LOCAL').toUpperCase();
+  }
+
+  let hostname = '';
+  try {
+    const parsed = new URL(trimmed);
+    hostname = parsed.hostname.toLowerCase();
+  } catch {
+    return (fallbackTitle || trimmed).trim().toUpperCase();
+  }
+
+  if (!hostname) {
+    return (fallbackTitle || 'LINK').trim().toUpperCase();
+  }
+
+  if (hostname === 'localhost' || hostname === '127.0.0.1' || /^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
+    return hostname === '127.0.0.1' ? 'LOCALHOST' : hostname.toUpperCase();
+  }
+
+  // Strip common prefixes and split hostname
+  const parts = hostname.split('.').filter(Boolean);
+  if (parts.length === 1) {
+    return parts[0].toUpperCase();
+  }
+
+  // Special case: <username>.github.io or <creator>.itch.io
+  const lastTwo = `${parts[parts.length - 2]}.${parts[parts.length - 1]}`;
+  if ((lastTwo === 'github.io' || lastTwo === 'itch.io') && parts.length >= 3) {
+    return parts[0].toUpperCase();
+  }
+
+  // Strip compound TLD (e.g. .com.br, .gov.br, .co.uk) or simple TLD (e.g. .com, .io, .ai)
+  let remaining = [...parts];
+  if (remaining.length >= 3 && COMPOUND_TLDS.has(`${remaining[remaining.length - 2]}.${remaining[remaining.length - 1]}`)) {
+    remaining.splice(remaining.length - 2, 2);
+  } else {
+    remaining.pop();
+  }
+
+  // Strip state/generic SLD in government domains (e.g. ourinhos.sp.gov.br -> sp)
+  if (remaining.length >= 2 && GENERIC_SLDS.has(remaining[remaining.length - 1])) {
+    remaining.pop();
+  }
+
+  // Pick main domain label unless it is a generic subdomain
+  let candidate = remaining[remaining.length - 1] || parts[0];
+  if (GENERIC_SUBDOMAINS.has(candidate) && remaining.length > 1) {
+    candidate = remaining[0];
+  }
+
+  return candidate.toUpperCase();
+}
+
 

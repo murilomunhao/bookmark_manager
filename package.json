@@ -1,7 +1,7 @@
 {
   "name": "brave-bookmark-architect",
   "version": "1.0.0",
-  "description": "Extensão Manifest V3 para Brave e Chrome: Validador de links, categorizador inteligente na Barra de Favoritos, prévia no hover, notas de observação e backup.",
+  "description": "Manifest V3 extension for Brave and Chrome: Link validator, smart Bookmarks Bar organizer, hover preview, observation notes, i18n, and backup.",
   "type": "module",
   "scripts": {
     "test": "node --test _testes/unit/bookmark-architect.test.js"

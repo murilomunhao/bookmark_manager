@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Brave Bookmark Architect & Smart Organizer</title>
+  <title>Brave Bookmark Architect &amp; Smart Organizer</title>
   <link rel="stylesheet" href="manager.css">
 </head>
 <body>
@@ -12,34 +12,39 @@
       <img src="../../icons/icon-48.png" alt="Logo" class="brand-icon" width="32" height="32">
       <div>
         <h1>Bookmark Architect</h1>
-        <p class="subtitle">Validador, Categorizador, Prévia &amp; Notas</p>
+        <p id="appSubtitle" class="subtitle" data-i18n="appSubtitle">Link Validator, Categorizer, Preview &amp; Notes</p>
       </div>
     </div>
 
     <div class="header-actions">
-      <button id="btnScanAll" class="btn btn-primary" type="button" title="Percorre todos os favoritos, testa se os links são válidos e extrai prévias">
-        🔍 Testar Todos os Links
+      <button id="btnScanAll" class="btn btn-primary" type="button" data-i18n="btnScanAll" data-i18n-title="btnScanAllTitle" title="Scan all bookmarks, validate links and extract previews">
+        🔍 Check All Links
       </button>
-      <button id="btnOrganizeBar" class="btn btn-accent" type="button" title="Cria as pastas na Barra de Favoritos e move cada link para sua categoria">
-        📁 Organizar na Barra de Favoritos
+      <button id="btnOrganizeBar" class="btn btn-accent" type="button" data-i18n="btnOrganizeBar" data-i18n-title="btnOrganizeBarTitle" title="Create category folders on the Bookmarks Bar and move each link to its category">
+        📁 Organize Bookmarks Bar
       </button>
-      <button id="btnExportBackup" class="btn btn-secondary" type="button" title="Exporta todos os favoritos, categorias e notas em JSON">
-        ⬇️ Exportar Backup
+      <button id="btnExportBackup" class="btn btn-secondary" type="button" data-i18n="btnExportBackup" data-i18n-title="btnExportBackupTitle" title="Export all bookmarks, categories and notes as JSON">
+        ⬇️ Export Backup
       </button>
-      <button id="btnImportBackup" class="btn btn-secondary" type="button" title="Importa backup JSON ou o arquivo Bookmarks do Brave/Chrome">
-        ⬆️ Importar / Restaurar
+      <button id="btnImportBackup" class="btn btn-secondary" type="button" data-i18n="btnImportBackup" data-i18n-title="btnImportBackupTitle" title="Import a JSON backup or native Brave/Chrome Bookmarks file">
+        ⬆️ Import / Restore
       </button>
-      <button id="btnOpenFullTab" class="btn btn-ghost" type="button" title="Abrir painel em uma guia de tela cheia">
-        ⛶ Tela Cheia
+      <button id="btnOpenFullTab" class="btn btn-ghost" type="button" data-i18n="btnOpenFullTab" data-i18n-title="btnOpenFullTabTitle" title="Open dashboard in a full browser tab">
+        ⛶ Full Screen
       </button>
+      <select id="languageSelect" class="filter-select lang-select" aria-label="Language">
+        <option value="en">🇺🇸 English</option>
+        <option value="pt-BR">🇧🇷 Português (BR)</option>
+        <option value="es">🇪🇸 Español</option>
+      </select>
       <input type="file" id="fileImportInput" accept=".json,application/json,*" hidden>
     </div>
   </header>
 
-  <!-- Barra de progresso de varredura -->
+  <!-- Progress Banner -->
   <section id="scanProgressSection" class="progress-banner" hidden aria-live="polite">
     <div class="progress-info">
-      <span id="scanProgressLabel">Verificando links...</span>
+      <span id="scanProgressLabel" data-i18n="scanProgressLabel">Validating links and extracting previews...</span>
       <span id="scanProgressNumbers">0 / 0 (0%)</span>
     </div>
     <div class="progress-track">
@@ -47,88 +52,89 @@
     </div>
   </section>
 
-  <!-- Resumo / Métricas -->
-  <section class="stats-bar" aria-label="Resumo dos favoritos">
+  <!-- Summary / Metrics -->
+  <section class="stats-bar" aria-label="Bookmarks summary">
     <div class="stat-card" data-filter-status="all">
       <span class="stat-value" id="statTotal">0</span>
-      <span class="stat-label">Total de Links</span>
+      <span class="stat-label" data-i18n="statTotal">Total Links</span>
     </div>
     <div class="stat-card stat-valid" data-filter-status="valid">
       <span class="stat-value" id="statValid">0</span>
-      <span class="stat-label">Válidos (Online)</span>
+      <span class="stat-label" data-i18n="statValid">Valid (Online)</span>
     </div>
     <div class="stat-card stat-restricted" data-filter-status="restricted">
       <span class="stat-value" id="statRestricted">0</span>
-      <span class="stat-label">Protegidos / Login</span>
+      <span class="stat-label" data-i18n="statRestricted">Protected / Login</span>
     </div>
     <div class="stat-card stat-broken" data-filter-status="broken">
       <span class="stat-value" id="statBroken">0</span>
-      <span class="stat-label">Quebrados (Offline)</span>
+      <span class="stat-label" data-i18n="statBroken">Broken (Offline)</span>
     </div>
     <div class="stat-card stat-notes" data-filter-status="with_notes">
       <span class="stat-value" id="statWithNotes">0</span>
-      <span class="stat-label">Com Notas</span>
+      <span class="stat-label" data-i18n="statWithNotes">With Notes</span>
     </div>
   </section>
 
-  <!-- Filtros e Busca -->
-  <section class="toolbar" aria-label="Filtros de busca e categorias">
+  <!-- Filters and Search -->
+  <section class="toolbar" aria-label="Search and category filters">
     <div class="search-wrapper">
       <input
         type="search"
         id="searchInput"
         class="search-input"
-        placeholder="Buscar por título, URL, domínio ou nota de observação..."
+        data-i18n-placeholder="searchPlaceholder"
+        placeholder="Search by name, URL, domain or observation note..."
         autocomplete="off"
       >
     </div>
 
     <div class="filters-row">
-      <select id="statusFilterSelect" class="filter-select" aria-label="Filtrar por status">
-        <option value="all">Todos os Status</option>
-        <option value="valid">✅ Apenas Válidos</option>
-        <option value="restricted">🛡️ Protegidos / Login (401/403)</option>
-        <option value="broken">❌ Apenas Quebrados</option>
-        <option value="unchecked">⏳ Ainda Não Testados</option>
-        <option value="with_notes">📝 Com Notas de Observação</option>
+      <select id="statusFilterSelect" class="filter-select" aria-label="Filter by status">
+        <option value="all" data-i18n="filterAll">All Statuses</option>
+        <option value="valid" data-i18n="filterValid">✅ Valid Only</option>
+        <option value="restricted" data-i18n="filterRestricted">🛡️ Protected / Login (401/403)</option>
+        <option value="broken" data-i18n="filterBroken">❌ Broken Only</option>
+        <option value="unchecked" data-i18n="filterUnchecked">⏳ Unchecked Only</option>
+        <option value="with_notes" data-i18n="filterWithNotes">📝 With Observation Notes</option>
       </select>
 
-      <label class="checkbox-label" title="Quando organizar na Barra de Favoritos, mover links quebrados para uma pasta separada">
+      <label class="checkbox-label" data-i18n-title="chkQuarantineBrokenTitle" title="When organizing the Bookmarks Bar, move broken links into a separate folder">
         <input type="checkbox" id="chkQuarantineBroken" checked>
-        Isolar quebrados ao organizar
+        <span data-i18n="chkQuarantineBroken">Quarantine broken links when organizing</span>
       </label>
     </div>
 
-    <nav id="categoryPills" class="category-pills" aria-label="Categorias de favoritos"></nav>
+    <nav id="categoryPills" class="category-pills" aria-label="Bookmark categories"></nav>
   </section>
 
-  <!-- Lista de Favoritos -->
+  <!-- Bookmarks List -->
   <main class="bookmarks-container">
     <div id="emptyState" class="empty-state" hidden>
-      <p>Nenhum favorito encontrado para os filtros selecionados.</p>
+      <p data-i18n="emptyState">No bookmarks found for the selected filters.</p>
     </div>
     <div id="bookmarksList" class="bookmarks-grid" role="list"></div>
   </main>
 
-  <!-- Popover de Prévia ao passar o mouse (WCAG 1.4.13 compliant: dismissible, hoverable, persistent) -->
+  <!-- Hover Preview Popover (WCAG 1.4.13 compliant: dismissible, hoverable, persistent) -->
   <div id="linkPreviewPopover" popover="hint" class="preview-popover">
     <div class="preview-header">
       <img id="previewFavicon" src="../../icons/icon-16.png" alt="" class="preview-favicon" width="20" height="20">
       <div class="preview-title-wrap">
-        <h3 id="previewTitle" class="preview-title">Carregando prévia...</h3>
+        <h3 id="previewTitle" class="preview-title" data-i18n="previewLoading">Loading preview...</h3>
         <span id="previewDomain" class="preview-domain"></span>
       </div>
       <span id="previewStatusBadge" class="status-badge"></span>
     </div>
 
     <div id="previewImageContainer" class="preview-image-wrap" hidden>
-      <img id="previewImage" src="" alt="Imagem de prévia do link" class="preview-image">
+      <img id="previewImage" src="" alt="Link preview image" class="preview-image">
     </div>
 
     <p id="previewDescription" class="preview-description"></p>
 
     <div id="previewNoteBox" class="preview-note-box" hidden>
-      <strong>📝 Sua Nota:</strong>
+      <strong data-i18n="previewNoteTitle">📝 Your Note:</strong>
       <p id="previewNoteText"></p>
     </div>
 
@@ -141,12 +147,12 @@
     </div>
   </div>
 
-  <!-- Modal de Edição de Nota de Observação e Categoria (Light-dismiss via closedby="any" + fallback) -->
+  <!-- Edit Bookmark, Link, Note & Category Dialog (Light-dismiss via closedby="any" + fallback) -->
   <dialog id="noteEditDialog" closedby="any" class="modal-dialog" aria-labelledby="noteDialogTitle">
     <form id="noteEditForm" method="dialog" class="modal-form">
       <header class="modal-header">
-        <h2 id="noteDialogTitle">📝 Nota &amp; Categoria do Favorito</h2>
-        <button type="button" id="btnCloseDialog" class="btn-icon" aria-label="Fechar janela">✕</button>
+        <h2 id="noteDialogTitle" data-i18n="dialogTitle">✏️ Edit Bookmark, Link &amp; Note</h2>
+        <button type="button" id="btnCloseDialog" class="btn-icon" data-i18n-aria-label="dialogCloseAria" aria-label="Close modal">✕</button>
       </header>
 
       <div class="modal-body">
@@ -154,55 +160,63 @@
         <input type="hidden" id="editBookmarkUrl">
 
         <div class="form-group">
-          <label for="editBookmarkTitle">Título do Favorito</label>
+          <div class="label-row">
+            <label for="editBookmarkTitle" data-i18n="labelBookmarkName">Bookmark Name (Default: DOMAIN in UPPERCASE)</label>
+            <button type="button" id="btnUseDomainName" class="btn-inline-helper" data-i18n="btnUseDomainName" data-i18n-title="btnUseDomainNameTitle" title="Auto-fill with the uppercase domain name">
+              ⚡ Use Domain (UPPERCASE)
+            </button>
+          </div>
           <input type="text" id="editBookmarkTitle" class="form-input" required>
         </div>
 
         <div class="form-group">
-          <label for="editBookmarkUrlDisplay">URL</label>
-          <input type="url" id="editBookmarkUrlDisplay" class="form-input" readonly>
+          <label for="editBookmarkUrlDisplay" data-i18n="labelBookmarkUrl">Link (Bookmark URL)</label>
+          <input type="text" id="editBookmarkUrlDisplay" class="form-input" required>
         </div>
 
         <div class="form-group">
-          <label for="editBookmarkCategory">Pasta / Categoria na Barra de Favoritos</label>
+          <label for="editBookmarkCategorySelect" data-i18n="labelBookmarkCategory">Folder / Category on Bookmarks Bar</label>
           <div class="category-input-group">
             <select id="editBookmarkCategorySelect" class="form-input"></select>
             <input
               type="text"
               id="editBookmarkCustomCategory"
               class="form-input"
-              placeholder="Ou digite uma nova categoria..."
+              data-i18n-placeholder="placeholderCustomCategory"
+              placeholder="Or type a new category..."
             >
           </div>
         </div>
 
         <div class="form-group">
-          <label for="editBookmarkNote">Nota de Observação (visível na listagem, na prévia e no backup)</label>
+          <label for="editBookmarkNote" data-i18n="labelBookmarkNote">Observation Note (visible in list, preview and backup)</label>
           <textarea
             id="editBookmarkNote"
             class="form-textarea"
             rows="4"
-            placeholder="Adicione observações, credenciais de dica, finalidade da ferramenta ou lembretes..."
+            data-i18n-placeholder="placeholderBookmarkNote"
+            placeholder="Add notes, credential hints, tool purpose or reminders..."
           ></textarea>
         </div>
 
         <label class="checkbox-label">
           <input type="checkbox" id="editMoveImmediately" checked>
-          Mover imediatamente para esta pasta na Barra de Favoritos
+          <span data-i18n="chkMoveImmediately">Move immediately to this folder on the Bookmarks Bar</span>
         </label>
+
+        <div id="editValidationError" class="modal-error-banner" role="alert" hidden></div>
       </div>
 
       <footer class="modal-footer">
-        <button type="button" id="btnCancelDialog" class="btn btn-secondary">Cancelar</button>
-        <button type="submit" id="btnSaveNote" class="btn btn-primary">💾 Salvar Alterações</button>
+        <button type="button" id="btnCancelDialog" class="btn btn-secondary" data-i18n="btnCancel">Cancel</button>
+        <button type="submit" id="btnSaveNote" class="btn btn-primary" data-i18n="btnSave">💾 Save Changes</button>
       </footer>
     </form>
   </dialog>
 
-  <!-- Toast de Feedback Visual -->
+  <!-- Visual Feedback Toast -->
   <div id="toastNotification" class="toast" role="status" aria-live="polite" hidden></div>
 
   <script type="module" src="manager.js"></script>
 </body>
 </html>
-

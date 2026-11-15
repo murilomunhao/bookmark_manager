@@ -1,31 +1,36 @@
 /**
  * UI Controller — Brave Bookmark Architect
- * Controla:
- * - Listagem, busca e filtros por categoria e status de validade
- * - Disparo de varredura de links e organização na Barra de Favoritos
- * - Popover de prévia ao passar o mouse (hover / focus) com busca sob demanda caso ainda não testado
- * - Modal de edição de notas de observação e categoria (com light-dismiss declarativo + fallback)
- * - Exportação e Importação de Backup JSON (ou arquivo `Bookmarks` nativo do Brave/Chrome)
+ * Controls:
+ * - Multi-language support (English default, Português Brasil, Español)
+ * - Listing, search and filtering by category and link validity status
+ * - Triggering link scan and Bookmarks Bar organization
+ * - Hover / focus preview popover with live on-demand inspection
+ * - Bookmark Edit Modal (Name, Link/URL with broken-link guard, Observation Note and Category)
+ * - Backup JSON Export & Import (including native Brave/Chrome `Bookmarks` file)
  */
 
-import { getAllCategories } from '../shared/categorizer.js';
+import { extractDomainNameUppercase, getAllCategories } from '../shared/categorizer.js';
 import { LINK_STATUS } from '../shared/link-checker.js';
+import { DEFAULT_LOCALE, SUPPORTED_LOCALES, t } from '../shared/i18n.js';
+import { getSavedLanguage, setSavedLanguage } from '../shared/storage-service.js';
 
-// Estado da interface
+// UI State
 let allBookmarks = [];
 let activeCategory = 'ALL';
 let activeStatusFilter = 'all';
 let searchQuery = '';
+let currentLang = DEFAULT_LOCALE;
 let hoverTimer = null;
 let hideTimer = null;
 
-// Elementos DOM
+// DOM Elements
 const els = {
   btnScanAll: document.getElementById('btnScanAll'),
   btnOrganizeBar: document.getElementById('btnOrganizeBar'),
   btnExportBackup: document.getElementById('btnExportBackup'),
   btnImportBackup: document.getElementById('btnImportBackup'),
   btnOpenFullTab: document.getElementById('btnOpenFullTab'),
+  languageSelect: document.getElementById('languageSelect'),
   fileImportInput: document.getElementById('fileImportInput'),
   scanProgressSection: document.getElementById('scanProgressSection'),
   scanProgressLabel: document.getElementById('scanProgressLabel'),
@@ -42,7 +47,7 @@ const els = {
   categoryPills: document.getElementById('categoryPills'),
   bookmarksList: document.getElementById('bookmarksList'),
   emptyState: document.getElementById('emptyState'),
-  // Popover de Prévia
+  // Preview Popover
   previewPopover: document.getElementById('linkPreviewPopover'),
   previewFavicon: document.getElementById('previewFavicon'),
   previewTitle: document.getElementById('previewTitle'),
@@ -56,7 +61,7 @@ const els = {
   previewUrl: document.getElementById('previewUrl'),
   previewCategoryTag: document.getElementById('previewCategoryTag'),
   previewCheckedAt: document.getElementById('previewCheckedAt'),
-  // Modal de Notas
+  // Edit Modal
   noteDialog: document.getElementById('noteEditDialog'),
   noteForm: document.getElementById('noteEditForm'),
   btnCloseDialog: document.getElementById('btnCloseDialog'),
@@ -64,24 +69,64 @@ const els = {
   editBookmarkId: document.getElementById('editBookmarkId'),
   editBookmarkUrl: document.getElementById('editBookmarkUrl'),
   editBookmarkTitle: document.getElementById('editBookmarkTitle'),
+  btnUseDomainName: document.getElementById('btnUseDomainName'),
   editBookmarkUrlDisplay: document.getElementById('editBookmarkUrlDisplay'),
   editBookmarkCategorySelect: document.getElementById('editBookmarkCategorySelect'),
   editBookmarkCustomCategory: document.getElementById('editBookmarkCustomCategory'),
   editBookmarkNote: document.getElementById('editBookmarkNote'),
   editMoveImmediately: document.getElementById('editMoveImmediately'),
+  editValidationError: document.getElementById('editValidationError'),
+  btnSaveNote: document.getElementById('btnSaveNote'),
   toast: document.getElementById('toastNotification')
 };
 
-// Inicialização
+// Initialization
 document.addEventListener('DOMContentLoaded', async () => {
   setupDialogLightDismissFallback();
   setupHoverPopoverBehavior();
+  await initLanguage();
   bindEvents();
   await loadBookmarksFromBackground();
 });
 
+async function initLanguage() {
+  const saved = await getSavedLanguage();
+  currentLang = SUPPORTED_LOCALES.includes(saved) ? saved : DEFAULT_LOCALE;
+  if (els.languageSelect) {
+    els.languageSelect.value = currentLang;
+  }
+  applyStaticTranslations();
+}
+
 /**
- * Fallback obrigatório para `closedby="any"` em navegadores sem suporte nativo a `HTMLDialogElement.prototype.closedBy`
+ * Applies translations to all static DOM elements carrying `data-i18n*` attributes
+ */
+function applyStaticTranslations() {
+  document.documentElement.lang = currentLang;
+
+  document.querySelectorAll('[data-i18n]').forEach((el) => {
+    const key = el.getAttribute('data-i18n');
+    if (key) el.textContent = t(currentLang, key);
+  });
+
+  document.querySelectorAll('[data-i18n-title]').forEach((el) => {
+    const key = el.getAttribute('data-i18n-title');
+    if (key) el.title = t(currentLang, key);
+  });
+
+  document.querySelectorAll('[data-i18n-placeholder]').forEach((el) => {
+    const key = el.getAttribute('data-i18n-placeholder');
+    if (key) el.placeholder = t(currentLang, key);
+  });
+
+  document.querySelectorAll('[data-i18n-aria-label]').forEach((el) => {
+    const key = el.getAttribute('data-i18n-aria-label');
+    if (key) el.setAttribute('aria-label', t(currentLang, key));
+  });
+}
+
+/**
+ * Mandatory fallback for `closedby="any"` in browsers lacking native `HTMLDialogElement.prototype.closedBy`
  */
 function setupDialogLightDismissFallback() {
   const dialog = els.noteDialog;
@@ -104,9 +149,9 @@ function setupDialogLightDismissFallback() {
 }
 
 /**
- * Configura persistência e acessibilidade (WCAG 1.4.13) do Popover de prévia:
- * - Hoverable: o usuário pode mover o mouse para dentro do popover sem que ele feche
- * - Dismissible: tecla Escape fecha imediatamente
+ * Configures WCAG 1.4.13 compliance for the preview popover:
+ * - Hoverable: pointer can move inside the popover without dismissing it
+ * - Dismissible: Escape key closes it immediately
  */
 function setupHoverPopoverBehavior() {
   const pop = els.previewPopover;
@@ -141,6 +186,19 @@ function bindEvents() {
     await chrome.tabs.create({ url: chrome.runtime.getURL('src/ui/manager.html') });
   });
 
+  if (els.languageSelect) {
+    els.languageSelect.addEventListener('change', async (e) => {
+      const selected = e.target.value;
+      if (SUPPORTED_LOCALES.includes(selected)) {
+        currentLang = selected;
+        await setSavedLanguage(currentLang);
+        applyStaticTranslations();
+        renderCategoryPills();
+        renderBookmarksList();
+      }
+    });
+  }
+
   els.searchInput.addEventListener('input', (e) => {
     searchQuery = e.target.value.trim().toLowerCase();
     renderBookmarksList();
@@ -151,7 +209,7 @@ function bindEvents() {
     renderBookmarksList();
   });
 
-  // Clique nos cards de estatísticas filtra por status
+  // Stat cards filter by status on click
   document.querySelectorAll('.stat-card').forEach((card) => {
     card.addEventListener('click', () => {
       const status = card.dataset.filterStatus || 'all';
@@ -161,19 +219,26 @@ function bindEvents() {
     });
   });
 
-  // Modal de edição de notas
+  // Edit modal events
   els.btnCloseDialog.addEventListener('click', () => els.noteDialog.close());
   els.btnCancelDialog.addEventListener('click', () => els.noteDialog.close());
   els.noteForm.addEventListener('submit', handleSaveNoteAndCategory);
 
-  // Escuta progresso da varredura enviado pelo Service Worker
+  if (els.btnUseDomainName) {
+    els.btnUseDomainName.addEventListener('click', () => {
+      const currentUrl = els.editBookmarkUrlDisplay.value.trim();
+      els.editBookmarkTitle.value = extractDomainNameUppercase(currentUrl);
+    });
+  }
+
+  // Listen for scan progress from Service Worker
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg?.type === 'SCAN_PROGRESS') {
       const { completed, total, percentage } = msg.payload;
       updateProgressBanner(true, completed, total, percentage);
     } else if (msg?.type === 'SCAN_COMPLETED') {
       updateProgressBanner(false);
-      showToast('Varredura de links concluída com sucesso!');
+      showToast(t(currentLang, 'toastScanCompleted'));
       loadBookmarksFromBackground();
     }
   });
@@ -182,7 +247,7 @@ function bindEvents() {
 async function loadBookmarksFromBackground() {
   const response = await chrome.runtime.sendMessage({ type: 'GET_BOOKMARKS' });
   if (!response?.ok) {
-    showToast(`Erro ao carregar favoritos: ${response?.error || 'Desconhecido'}`);
+    showToast(`${t(currentLang, 'toastLoadError')} ${response?.error || ''}`);
     return;
   }
 
@@ -209,7 +274,7 @@ function updateProgressBanner(visible, completed = 0, total = 0, percentage = 0)
   }
   els.scanProgressSection.hidden = false;
   els.btnScanAll.disabled = true;
-  els.scanProgressLabel.textContent = 'Testando validade dos links e extraindo prévias...';
+  els.scanProgressLabel.textContent = t(currentLang, 'scanProgressLabel');
   els.scanProgressNumbers.textContent = `${completed} / ${total} (${percentage}%)`;
   els.scanProgressBar.style.width = `${percentage}%`;
 }
@@ -248,7 +313,7 @@ function renderCategoryPills() {
   const allPill = document.createElement('button');
   allPill.type = 'button';
   allPill.className = `category-pill ${activeCategory === 'ALL' ? 'active' : ''}`;
-  allPill.textContent = `Todas (${allBookmarks.length})`;
+  allPill.textContent = `${t(currentLang, 'pillAll')} (${allBookmarks.length})`;
   allPill.addEventListener('click', () => {
     activeCategory = 'ALL';
     renderCategoryPills();
@@ -290,7 +355,7 @@ function getFilteredBookmarks() {
     }
 
     if (searchQuery) {
-      const hay = `${b.title || ''} ${b.url || ''} ${b.note || ''} ${b.category || ''}`.toLowerCase();
+      const hay = `${b.title || ''} ${b.originalTitle || ''} ${b.url || ''} ${b.note || ''} ${b.category || ''}`.toLowerCase();
       if (!hay.includes(searchQuery)) return false;
     }
 
@@ -330,15 +395,20 @@ function getFaviconUrl(url) {
 function getStatusBadgeInfo(bm) {
   switch (bm.status) {
     case LINK_STATUS.VALID:
-      return { label: `OK ${bm.statusCode || 200}`, cls: 'status-valid' };
+      return { label: `${t(currentLang, 'badgeValid')} ${bm.statusCode || 200}`, cls: 'status-valid' };
     case LINK_STATUS.RESTRICTED:
-      return { label: `Protegido ${bm.statusCode || ''}`.trim(), cls: 'status-restricted' };
+      return { label: `${t(currentLang, 'badgeRestricted')} ${bm.statusCode || ''}`.trim(), cls: 'status-restricted' };
     case LINK_STATUS.BROKEN:
-      return { label: bm.statusCode ? `Erro ${bm.statusCode}` : 'Offline', cls: 'status-broken' };
+      return {
+        label: bm.statusCode
+          ? `${t(currentLang, 'badgeBrokenError')} ${bm.statusCode}`
+          : t(currentLang, 'badgeBrokenOffline'),
+        cls: 'status-broken'
+      };
     case LINK_STATUS.SPECIAL:
-      return { label: 'Local / Script', cls: 'status-special' };
+      return { label: t(currentLang, 'badgeSpecial'), cls: 'status-special' };
     default:
-      return { label: 'Não testado', cls: 'status-unchecked' };
+      return { label: t(currentLang, 'badgeUnchecked'), cls: 'status-unchecked' };
   }
 }
 
@@ -371,7 +441,7 @@ function createBookmarkCard(bm) {
 
   link.append(favicon, titleSpan);
 
-  // Eventos de hover e foco para exibir a prévia rica
+  // Hover & focus events to display rich preview
   link.addEventListener('mouseenter', () => scheduleShowPreview(bm, link));
   link.addEventListener('mouseleave', () => scheduleHidePreview());
   link.addEventListener('focus', () => scheduleShowPreview(bm, link));
@@ -416,21 +486,21 @@ function createBookmarkCard(bm) {
   const btnCheck = document.createElement('button');
   btnCheck.type = 'button';
   btnCheck.className = 'action-btn';
-  btnCheck.title = 'Testar este link agora e atualizar prévia';
+  btnCheck.title = t(currentLang, 'btnCheckSingleTitle');
   btnCheck.textContent = '🔄';
   btnCheck.addEventListener('click', () => handleCheckSingle(bm, btnCheck));
 
   const btnNote = document.createElement('button');
   btnNote.type = 'button';
   btnNote.className = 'action-btn';
-  btnNote.title = 'Adicionar / Editar Nota de Observação e Categoria';
-  btnNote.textContent = bm.note ? '📝 Nota' : '+ Nota';
+  btnNote.title = t(currentLang, 'btnEditTitle');
+  btnNote.textContent = bm.note ? t(currentLang, 'btnEditWithNoteLabel') : t(currentLang, 'btnEditLabel');
   btnNote.addEventListener('click', () => openNoteDialog(bm));
 
   const btnDelete = document.createElement('button');
   btnDelete.type = 'button';
   btnDelete.className = 'action-btn';
-  btnDelete.title = 'Remover favorito';
+  btnDelete.title = t(currentLang, 'btnDeleteTitle');
   btnDelete.textContent = '🗑️';
   btnDelete.addEventListener('click', () => handleDeleteBookmark(bm));
 
@@ -442,7 +512,7 @@ function createBookmarkCard(bm) {
 }
 
 /**
- * Agenda abertura do Popover de prévia ao passar o mouse sobre o link
+ * Schedules opening the preview popover on link hover
  */
 function scheduleShowPreview(bm, anchorEl) {
   if (hideTimer) {
@@ -457,9 +527,9 @@ function scheduleShowPreview(bm, anchorEl) {
     populatePreviewPopover(bm, anchorEl);
     showPreviewPopover(anchorEl);
 
-    // Se ainda não tiver prévia nem foi testado, busca sob demanda em tempo real!
+    // Live on-demand fetch if not checked yet
     if (!bm.preview && (!bm.status || bm.status === LINK_STATUS.UNCHECKED)) {
-      els.previewDescription.textContent = 'Carregando prévia ao vivo do link...';
+      els.previewDescription.textContent = t(currentLang, 'previewLiveLoading');
       const resp = await chrome.runtime.sendMessage({
         type: 'CHECK_SINGLE_LINK',
         payload: { url: bm.url, category: bm.category }
@@ -505,7 +575,6 @@ function showPreviewPopover(anchorEl) {
     pop.style.display = 'flex';
   }
 
-  // Posiciona o popover próximo ao link garantindo que não saia da janela
   const rect = anchorEl.getBoundingClientRect();
   const popWidth = 350;
   const popHeight = pop.offsetHeight || 220;
@@ -526,12 +595,12 @@ function showPreviewPopover(anchorEl) {
 
 function populatePreviewPopover(bm) {
   els.previewFavicon.src = getFaviconUrl(bm.url);
-  els.previewTitle.textContent = bm.preview?.pageTitle || bm.title || 'Sem título';
+  els.previewTitle.textContent = bm.preview?.pageTitle || bm.originalTitle || bm.title || t(currentLang, 'previewUntitled');
 
   try {
     els.previewDomain.textContent = new URL(bm.url).hostname;
   } catch {
-    els.previewDomain.textContent = 'Recurso local / script';
+    els.previewDomain.textContent = t(currentLang, 'previewLocalResource');
   }
 
   const statusInfo = getStatusBadgeInfo(bm);
@@ -552,9 +621,9 @@ function populatePreviewPopover(bm) {
   if (bm.preview?.description) {
     els.previewDescription.textContent = bm.preview.description;
   } else if (bm.error) {
-    els.previewDescription.textContent = `⚠️ Diagnóstico: ${bm.error}`;
+    els.previewDescription.textContent = `${t(currentLang, 'previewDiagnosis')} ${bm.error}`;
   } else {
-    els.previewDescription.textContent = 'Passe o mouse ou clique em 🔄 para inspecionar os metadados deste link.';
+    els.previewDescription.textContent = t(currentLang, 'previewHoverHint');
   }
 
   if (bm.note && bm.note.trim()) {
@@ -567,12 +636,12 @@ function populatePreviewPopover(bm) {
   els.previewUrl.textContent = bm.url.slice(0, 110) + (bm.url.length > 110 ? '...' : '');
   els.previewCategoryTag.textContent = `📁 ${bm.category || 'Geral'}`;
   els.previewCheckedAt.textContent = bm.checkedAt
-    ? `Verificado: ${new Date(bm.checkedAt).toLocaleString('pt-BR')}`
-    : 'Ainda não verificado';
+    ? `${t(currentLang, 'previewVerifiedAt')} ${new Date(bm.checkedAt).toLocaleString(currentLang)}`
+    : t(currentLang, 'previewNotVerified');
 }
 
 /**
- * Testa um único link manualmente
+ * Manually tests a single bookmark link
  */
 async function handleCheckSingle(bm, btnEl) {
   btnEl.disabled = true;
@@ -588,12 +657,12 @@ async function handleCheckSingle(bm, btnEl) {
     Object.assign(bm, resp.result);
     updateStats();
     renderBookmarksList();
-    showToast(`Link verificado: ${getStatusBadgeInfo(bm).label}`);
+    showToast(`${t(currentLang, 'toastSingleChecked')} ${getStatusBadgeInfo(bm).label}`);
   }
 }
 
 /**
- * Dispara a varredura de todos os links
+ * Triggers batch link scan
  */
 async function handleScanAll() {
   els.btnScanAll.disabled = true;
@@ -605,7 +674,7 @@ async function handleScanAll() {
 }
 
 /**
- * Organiza todos os links em pastas de categorias na Barra de Favoritos
+ * Organizes all bookmarks into category folders on the Bookmarks Bar
  */
 async function handleOrganizeBar() {
   els.btnOrganizeBar.disabled = true;
@@ -621,19 +690,29 @@ async function handleOrganizeBar() {
   els.btnOrganizeBar.disabled = false;
 
   if (resp?.ok && resp.result) {
-    const { movedCount, categoriesUsed } = resp.result;
-    showToast(`✅ ${movedCount} favoritos organizados em ${categoriesUsed} pastas na Barra de Favoritos!`);
+    const { movedCount, renamedCount = 0, categoriesUsed } = resp.result;
+    showToast(
+      t(currentLang, 'toastOrganized', {
+        moved: movedCount,
+        renamed: renamedCount,
+        cats: categoriesUsed
+      })
+    );
     await loadBookmarksFromBackground();
   } else {
-    showToast(`Erro ao organizar: ${resp?.error || 'Desconhecido'}`);
+    showToast(`${t(currentLang, 'toastOrganizeError')} ${resp?.error || ''}`);
   }
 }
 
 /**
- * Abre o modal de edição de Nota de Observação e Categoria
+ * Opens the Bookmark Edit Modal
  */
 function openNoteDialog(bm) {
   hidePreviewNow();
+  if (els.editValidationError) {
+    els.editValidationError.hidden = true;
+    els.editValidationError.textContent = '';
+  }
   els.editBookmarkId.value = bm.id || '';
   els.editBookmarkUrl.value = bm.url;
   els.editBookmarkTitle.value = bm.title || '';
@@ -641,7 +720,6 @@ function openNoteDialog(bm) {
   els.editBookmarkNote.value = bm.note || '';
   els.editBookmarkCustomCategory.value = '';
 
-  // Popula select de categorias
   const knownCategories = new Set(getAllCategories());
   for (const item of allBookmarks) {
     if (item.category) knownCategories.add(item.category);
@@ -661,35 +739,60 @@ function openNoteDialog(bm) {
 }
 
 /**
- * Salva nota de observação e categoria do favorito
+ * Validates the target URL and saves Name, Link (URL), Observation Note and Category.
+ * Blocks saving if the link is broken.
  */
 async function handleSaveNoteAndCategory(e) {
   e.preventDefault();
+  if (els.editValidationError) {
+    els.editValidationError.hidden = true;
+    els.editValidationError.textContent = '';
+  }
+
   const bookmarkId = els.editBookmarkId.value;
-  const url = els.editBookmarkUrl.value;
-  const title = els.editBookmarkTitle.value.trim();
+  const oldUrl = els.editBookmarkUrl.value;
+  const url = els.editBookmarkUrlDisplay.value.trim();
+  const title = els.editBookmarkTitle.value.trim() || extractDomainNameUppercase(url);
   const customCat = els.editBookmarkCustomCategory.value.trim();
   const category = customCat || els.editBookmarkCategorySelect.value || 'Geral';
   const note = els.editBookmarkNote.value.trim();
   const moveNow = els.editMoveImmediately.checked;
 
-  const resp = await chrome.runtime.sendMessage({
-    type: 'SAVE_NOTE_AND_CATEGORY',
-    payload: { bookmarkId, url, title, note, category, moveNow }
-  });
+  const originalBtnText = t(currentLang, 'btnSave');
+  if (els.btnSaveNote) {
+    els.btnSaveNote.disabled = true;
+    els.btnSaveNote.textContent = t(currentLang, 'btnValidating');
+  }
 
-  els.noteDialog.close();
+  try {
+    const resp = await chrome.runtime.sendMessage({
+      type: 'SAVE_NOTE_AND_CATEGORY',
+      payload: { bookmarkId, oldUrl, url, title, note, category, moveNow }
+    });
 
-  if (resp?.ok) {
-    showToast('💾 Nota e categoria salvas com sucesso!');
-    await loadBookmarksFromBackground();
-  } else {
-    showToast(`Erro ao salvar: ${resp?.error || 'Desconhecido'}`);
+    if (resp?.ok) {
+      els.noteDialog.close();
+      showToast(t(currentLang, 'toastSaved'));
+      await loadBookmarksFromBackground();
+    } else {
+      const errMsg = resp?.error || 'Invalid or unreachable URL.';
+      if (els.editValidationError) {
+        els.editValidationError.textContent = `❌ ${errMsg}`;
+        els.editValidationError.hidden = false;
+      }
+      els.editBookmarkUrlDisplay.focus();
+      showToast(`${t(currentLang, 'toastNotSaved')} ${errMsg}`);
+    }
+  } finally {
+    if (els.btnSaveNote) {
+      els.btnSaveNote.disabled = false;
+      els.btnSaveNote.textContent = originalBtnText;
+    }
   }
 }
 
 /**
- * Remove um favorito
+ * Removes a bookmark
  */
 async function handleDeleteBookmark(bm) {
   if (!bm.id) return;
@@ -698,18 +801,18 @@ async function handleDeleteBookmark(bm) {
     payload: { bookmarkId: bm.id }
   });
   if (resp?.ok) {
-    showToast('🗑️ Favorito removido.');
+    showToast(t(currentLang, 'toastDeleted'));
     await loadBookmarksFromBackground();
   }
 }
 
 /**
- * Exporta todos os favoritos, categorias, status e notas para um arquivo JSON de backup
+ * Exports all bookmarks, categories, status and notes to a JSON backup file
  */
 async function handleExportBackup() {
   const resp = await chrome.runtime.sendMessage({ type: 'EXPORT_BACKUP' });
   if (!resp?.ok || !resp.backup) {
-    showToast('Erro ao gerar backup.');
+    showToast(t(currentLang, 'toastExportError'));
     return;
   }
 
@@ -726,11 +829,11 @@ async function handleExportBackup() {
   a.remove();
   URL.revokeObjectURL(url);
 
-  showToast('⬇️ Backup exportado com sucesso!');
+  showToast(t(currentLang, 'toastExported'));
 }
 
 /**
- * Importa um arquivo JSON de backup (ou o arquivo `Bookmarks` nativo do Brave/Chrome)
+ * Imports a JSON backup file (or native Brave/Chrome `Bookmarks` file)
  */
 async function handleImportFileSelected(e) {
   const file = e.target.files?.[0];
@@ -747,14 +850,18 @@ async function handleImportFileSelected(e) {
     if (resp?.ok && resp.result) {
       const { createdCount, updatedCount, totalInFile } = resp.result;
       showToast(
-        `⬆️ Importado! ${totalInFile} lidos (${createdCount} novos criados, ${updatedCount} atualizados na Barra).`
+        t(currentLang, 'toastImported', {
+          total: totalInFile,
+          created: createdCount,
+          updated: updatedCount
+        })
       );
       await loadBookmarksFromBackground();
     } else {
-      showToast(`Erro na importação: ${resp?.error || 'Formato inválido'}`);
+      showToast(`${t(currentLang, 'toastImportError')} ${resp?.error || ''}`);
     }
   } catch (err) {
-    showToast(`Falha ao ler arquivo: ${err.message}`);
+    showToast(`${t(currentLang, 'toastFileReadError')} ${err.message}`);
   }
 }
 
@@ -767,4 +874,3 @@ function showToast(message) {
     els.toast.hidden = true;
   }, 4000);
 }
-

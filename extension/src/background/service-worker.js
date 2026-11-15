@@ -1,19 +1,22 @@
 /**
  * Service Worker (Manifest V3) — Brave Bookmark Architect
- * Responsável por:
- * - Abrir o Side Panel / Dashboard ao clicar no ícone da extensão
- * - Criar menu de contexto para abrir o Dashboard em tela cheia ou salvar nota rápida
- * - Orquestrar a varredura assíncrona de links (teste de validade + extração de prévia)
- * - Categorizar e organizar os favoritos em pastas de categoria diretamente na Barra de Favoritos (`id: "1"`)
- * - Importar e exportar backups (incluindo o formato nativo `Bookmarks` do Brave/Chrome)
+ * Responsibilities:
+ * - Open the Side Panel / Dashboard when clicking the extension action icon
+ * - Register context menu items to open the Dashboard in a full tab or organize bookmarks
+ * - Orchestrate asynchronous batch link validation and preview extraction
+ * - Categorize, standardize default domain names (UPPERCASE), and organize bookmarks into category folders on the Bookmarks Bar (`id: "1"`)
+ * - Validate edited links before saving and support JSON backup export/import
  */
 
-import { categorizeBookmark } from '../shared/categorizer.js';
+import { categorizeBookmark, extractDomainNameUppercase } from '../shared/categorizer.js';
 import { checkLinksBatch, checkSingleUrl, LINK_STATUS } from '../shared/link-checker.js';
+import { t } from '../shared/i18n.js';
 import {
   batchUpdateMetadata,
   getAllMetadata,
+  getSavedLanguage,
   getScanState,
+  migrateBookmarkMetadataUrl,
   normalizeUrlKey,
   setScanState,
   updateBookmarkMetadata
@@ -25,32 +28,32 @@ import {
   parseImportPayload
 } from '../shared/backup-service.js';
 
-const BOOKMARKS_BAR_ID = '1'; // ID padrão da Barra de Favoritos no Chromium / Brave
+const BOOKMARKS_BAR_ID = '1'; // Default Bookmarks Bar ID in Chromium / Brave
 
-// Configura abertura automática do Side Panel ao clicar no ícone da extensão
+// Configure automatic Side Panel opening on extension action click
 chrome.runtime.onInstalled.addListener(async () => {
   try {
     await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
   } catch (err) {
-    console.error('Erro ao configurar sidePanel behavior:', err);
+    console.error('Failed to configure sidePanel behavior:', err);
   }
 
-  // Cria itens no menu de contexto
+  // Register context menu items
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
       id: 'open-full-dashboard',
-      title: 'Abrir Gerenciador de Favoritos em Tela Cheia',
+      title: 'Open Bookmark Manager in Full Screen',
       contexts: ['action']
     });
     chrome.contextMenus.create({
       id: 'organize-bookmarks-now',
-      title: 'Categorizar e Organizar Barra de Favoritos Agora',
+      title: 'Categorize and Organize Bookmarks Bar Now',
       contexts: ['action']
     });
   });
 });
 
-// Fallback caso setPanelBehavior não dispare em alguma versão específica
+// Fallback if setPanelBehavior does not fire on a specific Chromium build
 chrome.action.onClicked.addListener(async (tab) => {
   if (tab?.windowId) {
     try {
@@ -61,19 +64,19 @@ chrome.action.onClicked.addListener(async (tab) => {
   }
 });
 
-// Menu de contexto com confirmação visual (notificação / badge)
+// Context menu handler with user notification feedback
 chrome.contextMenus.onClicked.addListener(async (info) => {
   if (info.menuItemId === 'open-full-dashboard') {
     await chrome.tabs.create({ url: chrome.runtime.getURL('src/ui/manager.html') });
     await showUserNotification(
       'Bookmark Architect',
-      'Painel aberto em uma nova guia para visualização expandida.'
+      'Dashboard opened in a new full-screen tab.'
     );
   } else if (info.menuItemId === 'organize-bookmarks-now') {
     const result = await organizeBookmarksIntoCategoryFolders({ removeBroken: false });
     await showUserNotification(
-      'Favoritos Organizados!',
-      `${result.movedCount} links foram organizados em ${result.categoriesUsed} pastas na Barra de Favoritos.`
+      'Bookmarks Organized!',
+      `${result.movedCount} links organized into ${result.categoriesUsed} folders on the Bookmarks Bar.`
     );
   }
 });
@@ -87,13 +90,13 @@ async function showUserNotification(title, message) {
       message
     });
   } catch (err) {
-    console.warn('Notificação falhou:', err);
+    console.warn('Notification failed:', err);
   }
 }
 
 /**
- * Lê toda a árvore de favoritos do navegador e enriquece cada link com os metadados salvos
- * (categoria, nota de observação, status de validação e prévia).
+ * Reads the entire browser bookmark tree and enriches each link with stored metadata
+ * (category, observation note, validation status, preview, and default uppercase domain name).
  */
 async function getEnrichedBookmarks() {
   const tree = await chrome.bookmarks.getTree();
@@ -111,8 +114,16 @@ async function getEnrichedBookmarks() {
         currentFolder: item.folder
       });
 
+    // By default, use the domain name without extension in UPPERCASE (e.g. https://www.meusite.com -> MEUSITE)
+    // unless the user explicitly saved a custom title (`customTitle: true`)
+    const defaultDomainTitle = extractDomainNameUppercase(item.url, item.title);
+    const displayTitle = meta.customTitle ? item.title : defaultDomainTitle;
+
     return {
       ...item,
+      title: displayTitle,
+      originalTitle: meta.originalTitle || item.title,
+      customTitle: Boolean(meta.customTitle),
       category,
       note: meta.note || '',
       status: meta.status || LINK_STATUS.UNCHECKED,
@@ -125,7 +136,7 @@ async function getEnrichedBookmarks() {
 }
 
 /**
- * Percorre todos os favoritos, testa se os links são válidos e salva status + prévia.
+ * Scans all bookmarks, validates link reachability, and stores status + preview metadata.
  */
 async function scanAllBookmarks({ onlyUnchecked = false } = {}) {
   const currentScan = await getScanState();
@@ -155,7 +166,7 @@ async function scanAllBookmarks({ onlyUnchecked = false } = {}) {
   const pendingPatches = {};
 
   try {
-    await checkLinksBatch(targets, 6, async ({ completed, total: tot, item, result }) => {
+    await checkLinksBatch(targets, 4, async ({ completed, total: tot, item, result }) => {
       pendingPatches[item.url] = {
         status: result.status,
         statusCode: result.statusCode,
@@ -165,7 +176,7 @@ async function scanAllBookmarks({ onlyUnchecked = false } = {}) {
         category: item.category
       };
 
-      // Persiste a cada 8 links ou no último para manter a UI reativa sem sobrecarregar I/O
+      // Persist every 8 links or on completion to keep UI reactive without saturating storage I/O
       if (completed % 8 === 0 || completed === tot) {
         await batchUpdateMetadata({ ...pendingPatches });
         for (const k of Object.keys(pendingPatches)) delete pendingPatches[k];
@@ -207,8 +218,7 @@ async function scanAllBookmarks({ onlyUnchecked = false } = {}) {
 }
 
 /**
- * Garante que uma pasta de categoria exista diretamente na Barra de Favoritos (`id: "1"`)
- * e retorna seu ID.
+ * Ensures a category folder exists directly on the Bookmarks Bar (`id: "1"`) and returns its ID.
  */
 async function ensureCategoryFolderOnBar(categoryName, existingBarFoldersMap) {
   const normalized = categoryName.trim().toLowerCase();
@@ -225,17 +235,19 @@ async function ensureCategoryFolderOnBar(categoryName, existingBarFoldersMap) {
 }
 
 /**
- * Categoriza cada link e move para pastas correspondentes na Barra de Favoritos (`id: "1"`).
- * Opcionalmente move links quebrados para uma pasta `_Links Quebrados` ou os remove se solicitado.
+ * Categorizes each link, applies the default uppercase domain name (unless customized by the user),
+ * and moves bookmarks into their corresponding category folders on the Bookmarks Bar (`id: "1"`).
  */
 async function organizeBookmarksIntoCategoryFolders({
   quarantineBroken = true,
-  removeEmptyFolders = true
+  removeEmptyFolders = true,
+  normalizeNamesToDomain = true
 } = {}) {
   const tree = await chrome.bookmarks.getTree();
   const metadataMap = await getAllMetadata();
+  const lang = await getSavedLanguage();
 
-  // Mapeia as pastas diretas que já existem na Barra de Favoritos (id '1')
+  // Map direct child folders already present on the Bookmarks Bar (id '1')
   const barChildren = await chrome.bookmarks.getChildren(BOOKMARKS_BAR_ID);
   const existingBarFoldersMap = new Map();
   for (const child of barChildren) {
@@ -244,7 +256,7 @@ async function organizeBookmarksIntoCategoryFolders({
     }
   }
 
-  // Coleta todos os links em toda a árvore de favoritos (Barra de Favoritos + Outros Favoritos + subpastas)
+  // Collect all links and non-root folders across the entire bookmark tree
   const allLinks = [];
   const allFolders = [];
 
@@ -280,6 +292,7 @@ async function organizeBookmarksIntoCategoryFolders({
   }
 
   let movedCount = 0;
+  let renamedCount = 0;
   const usedCategories = new Set();
   const metadataUpdates = {};
 
@@ -290,17 +303,35 @@ async function organizeBookmarksIntoCategoryFolders({
     let targetCategory =
       meta.category ||
       categorizeBookmark({
-        title: link.title,
+        title: meta.originalTitle || link.title,
         url: link.url,
         currentFolder: link.currentFolderName
       });
 
     if (quarantineBroken && meta.status === LINK_STATUS.BROKEN) {
-      targetCategory = '⚠️ Links Quebrados';
+      targetCategory = t(lang, 'brokenFolderTitle');
     }
 
     usedCategories.add(targetCategory);
-    metadataUpdates[link.url] = { category: targetCategory };
+
+    // Default to uppercase domain name without extension (e.g. MEUSITE),
+    // preserving the original title in metadata for hover preview and search
+    const domainUpper = extractDomainNameUppercase(link.url, link.title);
+    const desiredTitle = meta.customTitle ? link.title : domainUpper;
+
+    metadataUpdates[link.url] = {
+      category: targetCategory,
+      ...(meta.originalTitle ? {} : { originalTitle: link.title })
+    };
+
+    if (normalizeNamesToDomain && !meta.customTitle && link.title !== desiredTitle) {
+      try {
+        await chrome.bookmarks.update(String(link.id), { title: desiredTitle });
+        renamedCount++;
+      } catch (err) {
+        console.warn(`Could not rename bookmark ${link.id}:`, err);
+      }
+    }
 
     const targetFolderId = await ensureCategoryFolderOnBar(targetCategory, existingBarFoldersMap);
 
@@ -309,17 +340,16 @@ async function organizeBookmarksIntoCategoryFolders({
         await chrome.bookmarks.move(String(link.id), { parentId: String(targetFolderId) });
         movedCount++;
       } catch (err) {
-        console.warn(`Não foi possível mover o favorito ${link.id}:`, err);
+        console.warn(`Could not move bookmark ${link.id}:`, err);
       }
     }
   }
 
   await batchUpdateMetadata(metadataUpdates);
 
-  // Remove pastas antigas que ficaram vazias (como "IAs" antiga ou "Importado")
+  // Remove legacy folders that became empty after reorganization
   let removedFoldersCount = 0;
   if (removeEmptyFolders) {
-    // Percorre em ordem reversa (subpastas mais profundas primeiro)
     for (const folder of allFolders.reverse()) {
       try {
         const remainingChildren = await chrome.bookmarks.getChildren(String(folder.id));
@@ -328,7 +358,7 @@ async function organizeBookmarksIntoCategoryFolders({
           removedFoldersCount++;
         }
       } catch {
-        // Pasta já removida ou protegida
+        // Folder already removed or protected
       }
     }
   }
@@ -336,20 +366,20 @@ async function organizeBookmarksIntoCategoryFolders({
   return {
     totalProcessed: allLinks.length,
     movedCount,
+    renamedCount,
     categoriesUsed: usedCategories.size,
     removedFoldersCount
   };
 }
 
 /**
- * Importa favoritos de um JSON (Backup do plugin ou arquivo `Bookmarks` nativo do Brave/Chrome),
- * evita duplicatas na mesma categoria e organiza tudo nas pastas da Barra de Favoritos.
+ * Imports bookmarks from a JSON payload (extension backup or native Brave/Chrome `Bookmarks` file),
+ * avoids duplicating existing URLs, and organizes them into category folders on the Bookmarks Bar.
  */
 async function importBookmarksFromJson(jsonPayload) {
   const { items, metadataPatches } = parseImportPayload(jsonPayload);
   await applyImportedMetadata(metadataPatches);
 
-  // Obtém os links já existentes no navegador para não duplicar URLs idênticas
   const existingBookmarks = await getEnrichedBookmarks();
   const existingByUrl = new Map();
   for (const bm of existingBookmarks) {
@@ -380,7 +410,7 @@ async function importBookmarksFromJson(jsonPayload) {
         try {
           await chrome.bookmarks.move(String(existing.id), { parentId: String(targetFolderId) });
         } catch {
-          // ignora falha se ID mudou
+          // ignore if ID changed
         }
       }
       updatedCount++;
@@ -394,7 +424,7 @@ async function importBookmarksFromJson(jsonPayload) {
         existingByUrl.set(key, created);
         createdCount++;
       } catch (err) {
-        console.warn('Falha ao criar favorito importado:', item.url, err);
+        console.warn('Failed to create imported bookmark:', item.url, err);
       }
     }
   }
@@ -406,7 +436,7 @@ async function importBookmarksFromJson(jsonPayload) {
   };
 }
 
-// Roteador central de mensagens Assíncrono (sempre retorna true para manter o canal aberto)
+// Central asynchronous message router (always returns true to keep the channel open)
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   (async () => {
     try {
@@ -435,7 +465,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
         case 'SCAN_ALL_LINKS': {
           const { onlyUnchecked = false } = message.payload || {};
-          // Inicia em background e responde imediatamente que iniciou, ou aguarda conclusão
           const result = await scanAllBookmarks({ onlyUnchecked });
           sendResponse({ ok: true, result });
           break;
@@ -449,17 +478,49 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         }
 
         case 'SAVE_NOTE_AND_CATEGORY': {
-          const { bookmarkId, url, title, note, category, moveNow } = message.payload || {};
-          const updatedMeta = await updateBookmarkMetadata(url, {
-            note: (note || '').trim(),
-            category: (category || 'Geral').trim()
-          });
+          const { bookmarkId, oldUrl, url, title, note, category, moveNow } = message.payload || {};
+          const finalUrl = (url || oldUrl || '').trim();
+          const previousUrl = (oldUrl || finalUrl).trim();
 
-          if (bookmarkId && title) {
+          // Validate that the link (URL) is not broken before saving
+          const checkResult = await checkSingleUrl(finalUrl);
+          if (checkResult.status === LINK_STATUS.BROKEN) {
+            sendResponse({
+              ok: false,
+              brokenUrl: true,
+              error: `The provided link is unreachable or broken (${checkResult.error || 'Offline'}). Please fix the URL before saving.`
+            });
+            break;
+          }
+
+          const defaultDomainTitle = extractDomainNameUppercase(finalUrl, title);
+          const finalTitle = (title || defaultDomainTitle).trim();
+          const isCustomTitle = finalTitle.toUpperCase() !== defaultDomainTitle.toUpperCase();
+
+          const metadataPatch = {
+            note: (note || '').trim(),
+            category: (category || 'Geral').trim(),
+            customTitle: isCustomTitle,
+            status: checkResult.status,
+            statusCode: checkResult.statusCode,
+            error: checkResult.error || null,
+            preview: checkResult.preview || null,
+            checkedAt: checkResult.checkedAt
+          };
+
+          const updatedMeta =
+            previousUrl !== finalUrl
+              ? await migrateBookmarkMetadataUrl(previousUrl, finalUrl, metadataPatch)
+              : await updateBookmarkMetadata(finalUrl, metadataPatch);
+
+          if (bookmarkId) {
             try {
-              await chrome.bookmarks.update(String(bookmarkId), { title: title.trim() });
-            } catch {
-              // ignora se bookmarkId for de pré-visualização
+              await chrome.bookmarks.update(String(bookmarkId), {
+                title: finalTitle,
+                url: finalUrl
+              });
+            } catch (err) {
+              console.warn('Failed to update bookmark title/URL:', err);
             }
           }
 
@@ -473,7 +534,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             try {
               await chrome.bookmarks.move(String(bookmarkId), { parentId: String(targetFolderId) });
             } catch {
-              // ignora falha
+              // ignore move failure
             }
           }
 
@@ -505,14 +566,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         }
 
         default:
-          sendResponse({ ok: false, error: `Ação desconhecida: ${message?.type}` });
+          sendResponse({ ok: false, error: `Unknown action: ${message?.type}` });
       }
     } catch (err) {
-      console.error('Erro no Service Worker:', err);
+      console.error('Service Worker error:', err);
       sendResponse({ ok: false, error: err?.message || String(err) });
     }
   })();
 
-  return true; // Mantém o canal de mensagem aberto para respostas assíncronas
+  return true; // Keep message channel open for async response
 });
-

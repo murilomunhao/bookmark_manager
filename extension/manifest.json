@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Brave Bookmark Architect & Smart Organizer",
   "version": "1.0.0",
-  "description": "Valida todos os favoritos, categoriza e organiza na barra de favoritos, exibe prévia ao passar o mouse, adiciona notas e faz backup.",
+  "description": "Validates all bookmarks, categorizes and organizes them on the Bookmarks Bar, shows hover previews, adds notes, and exports/imports backups.",
   "permissions": [
     "bookmarks",
     "storage",
@@ -19,7 +19,7 @@
     "type": "module"
   },
   "action": {
-    "default_title": "Abrir Bookmark Architect",
+    "default_title": "Open Bookmark Architect",
     "default_icon": {
       "16": "icons/icon-16.png",
       "48": "icons/icon-48.png",
